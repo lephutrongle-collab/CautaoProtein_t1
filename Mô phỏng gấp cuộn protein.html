@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mô phỏng gấp cuộn protein</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;800&display=swap">
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#e9eef1;--panel:#f7f9fa;--ink:#16222c;--muted:#5b6b78;--line:#c9d3da;--hyd:#e39a2d;--pol:#3f7fcf;--bond:#7b8a96;--accent:#1f6f5c}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f171d;--panel:#16212a;--ink:#e6edf1;--muted:#8fa0ad;--line:#26343f;--hyd:#f0b04a;--pol:#6aa3ec;--bond:#6b7c89;--accent:#4fc3a1}}
+:root[data-theme="dark"]{--bg:#0f171d;--panel:#16212a;--ink:#e6edf1;--muted:#8fa0ad;--line:#26343f;--hyd:#f0b04a;--pol:#6aa3ec;--bond:#6b7c89;--accent:#4fc3a1}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*:before,*:after{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Be Vietnam Pro",system-ui,sans-serif;line-height:1.5}
+main{max-width:1000px;margin:0 auto;padding:20px 16px 32px}
+h1{font-size:clamp(1.6rem,4vw,2.4rem);font-weight:800;margin:0 0 4px;letter-spacing:-.02em}
+p.lead{margin:0 0 16px;color:var(--muted);max-width:60ch}
+.grid{display:grid;grid-template-columns:1fr 280px;gap:14px}
+@media(max-width:760px){.grid{grid-template-columns:1fr}}
+.stage{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+canvas{display:block;width:100%;height:min(62vh,520px)}
+.side{display:flex;flex-direction:column;gap:12px}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+label{display:flex;justify-content:space-between;font-size:.9rem;font-weight:600}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat b{display:block;font-size:1.5rem;font-weight:800}
+.stat span{font-size:.8rem;color:var(--muted)}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+button{font:inherit;font-weight:600;padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer}
+button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.seq{font-family:ui-monospace,Menlo,monospace;font-size:.85rem;word-break:break-all}
+.seq i{font-style:normal;font-weight:700}
+.seq .H{color:var(--hyd)}.seq .P{color:var(--pol)}
+.legend{display:flex;gap:14px;font-size:.85rem;color:var(--muted);flex-wrap:wrap}
+.dot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.status{font-weight:600;color:var(--accent)}
+</style>
+</head>
+<body>
+<main>
+<h1>Mô phỏng gấp cuộn protein</h1>
+<p class="lead">Chuỗi axit amin dao động nhiệt. Các hạt kỵ nước (cam) hút nhau và co cụm vào lõi, còn hạt ưa nước (xanh) nằm ngoài. Đó là động lực chính khiến protein gấp cuộn.</p>
+<div class="grid">
+  <div class="stage"><canvas id="c" aria-label="Mô phỏng chuỗi protein đang gấp cuộn"></canvas></div>
+  <div class="side">
+    <div class="box stats">
+      <div class="stat"><b id="sContacts">0</b><span>tiếp xúc kỵ nước</span></div>
+      <div class="stat"><b id="sRg">0</b><span>bán kính quay</span></div>
+      <div class="stat" style="grid-column:1/-1"><span>Trạng thái</span><div class="status" id="sState">Đang duỗi</div></div>
+    </div>
+    <div class="box">
+      <label for="temp">Nhiệt độ <span id="vTemp"></span></label>
+      <input id="temp" type="range" min="0" max="3" step="0.05" value="0.6">
+      <label for="att" style="margin-top:10px">Lực hút kỵ nước <span id="vAtt"></span></label>
+      <input id="att" type="range" min="0" max="3" step="0.05" value="1.5">
+    </div>
+    <div class="box btns">
+      <button class="primary" id="bPlay">Tạm dừng</button>
+      <button id="bUnfold">Duỗi chuỗi</button>
+      <button id="bNew">Chuỗi mới</button>
+      <button id="bHeat">Nung nóng</button>
+    </div>
+    <div class="box">
+      <div class="seq" id="seq"></div>
+      <div class="legend" style="margin-top:8px"><span><i class="dot" style="background:var(--hyd)"></i>Kỵ nước (H)</span><span><i class="dot" style="background:var(--pol)"></i>Ưa nước (P)</span></div>
+    </div>
+  </div>
+</div>
+</main>
+<script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+const $=id=>document.getElementById(id);
+const N=32,L=15,R0=15;
+let W=0,H=0,dpr=1,running=true,seq=[],pos=[],temp=.6,att=1.5,contacts=0,rg=0;
+
+function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim()}
+function resize(){dpr=window.devicePixelRatio||1;const r=cv.getBoundingClientRect();W=r.width;H=r.height;cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
+function newSeq(){seq=Array.from({length:N},()=>Math.random()<.5?'H':'P');
+  $('seq').innerHTML=seq.map(s=>`<i class="${s}">${s}</i>`).join('')}
+function unfold(){pos=[];const x0=W/2-(N-1)*L/2;
+  for(let i=0;i<N;i++)pos.push({x:x0+i*L,y:H/2+(Math.random()-.5)*2})}
+
+function step(){
+  const F=pos.map(()=>({x:0,y:0}));
+  for(let i=0;i<N;i++){
+    if(i<N-1){ // lò xo liên kết
+      const a=pos[i],b=pos[i+1];let dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1e-6,f=.9*(d-L);
+      F[i].x+=f*dx/d;F[i].y+=f*dy/d;F[i+1].x-=f*dx/d;F[i+1].y-=f*dy/d}
+    if(i<N-2){ // độ cứng góc: hạn chế gập gắt
+      const a=pos[i],b=pos[i+2];let dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1e-6,f=.12*(d-L*1.7);
+      F[i].x+=f*dx/d;F[i].y+=f*dy/d;F[i+2].x-=f*dx/d;F[i+2].y-=f*dy/d}
+    for(let j=i+2;j<N;j++){
+      const a=pos[i],b=pos[j];let dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1e-6,f=0;
+      if(d<R0)f=-1.2*(R0-d); // đẩy nhau
+      else if(seq[i]=='H'&&seq[j]=='H'&&d<R0*2.4)f=.25*att; // H-H hút nhau
+      if(f){F[i].x+=f*dx/d;F[i].y+=f*dy/d;F[j].x-=f*dx/d;F[j].y-=f*dy/d}
+    }
+  }
+  const noise=Math.sqrt(temp)*2.2,cx=W/2,cy=H/2;
+  for(let i=0;i<N;i++){const p=pos[i];
+    p.x+=F[i].x*.5+(Math.random()-.5)*noise+(cx-p.x)*.002;
+    p.y+=F[i].y*.5+(Math.random()-.5)*noise+(cy-p.y)*.002;
+    p.x=Math.min(W-10,Math.max(10,p.x));p.y=Math.min(H-10,Math.max(10,p.y))}
+}
+function measure(){
+  let c=0,mx=0,my=0;
+  for(let i=0;i<N;i++){mx+=pos[i].x;my+=pos[i].y}mx/=N;my/=N;
+  let s=0;for(const p of pos)s+=(p.x-mx)**2+(p.y-my)**2;rg=Math.sqrt(s/N)/L;
+  for(let i=0;i<N;i++)for(let j=i+2;j<N;j++)if(seq[i]=='H'&&seq[j]=='H'&&Math.hypot(pos[i].x-pos[j].x,pos[i].y-pos[j].y)<R0*1.5)c++;
+  contacts=c;
+  $('sContacts').textContent=c;$('sRg').textContent=rg.toFixed(2);
+  const compact=rg<2.4;
+  $('sState').textContent=temp>2?'Biến tính (quá nóng)':compact?'Đã gấp cuộn':rg<3.6?'Đang gấp':'Đang duỗi';
+}
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle=css('--bond');ctx.lineWidth=4;
+  ctx.beginPath();pos.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.stroke();
+  const hc=css('--hyd'),pc=css('--pol'),bg=css('--panel');
+  pos.forEach((p,i)=>{ctx.beginPath();ctx.arc(p.x,p.y,R0*.46,0,7);ctx.fillStyle=seq[i]=='H'?hc:pc;ctx.fill();
+    ctx.lineWidth=1.5;ctx.strokeStyle=bg;ctx.stroke()});
+  ctx.fillStyle=css('--ink');ctx.beginPath();ctx.arc(pos[0].x,pos[0].y,2.2,0,7);ctx.fill();
+}
+let tick=0;
+function loop(){
+  if(running)for(let k=0;k<3;k++)step();
+  if(++tick%6==0)measure();
+  draw();requestAnimationFrame(loop)}
+
+$('temp').oninput=e=>{temp=+e.target.value;$('vTemp').textContent=temp.toFixed(2)};
+$('att').oninput=e=>{att=+e.target.value;$('vAtt').textContent=att.toFixed(2)};
+$('bPlay').onclick=e=>{running=!running;e.target.textContent=running?'Tạm dừng':'Tiếp tục'};
+$('bUnfold').onclick=unfold;
+$('bNew').onclick=()=>{newSeq();unfold()};
+$('bHeat').onclick=()=>{const t=$('temp');t.value=3;t.oninput({target:t});
+  setTimeout(()=>{t.value=.6;t.oninput({target:t})},2500)};
+$('vTemp').textContent=temp.toFixed(2);$('vAtt').textContent=att.toFixed(2);
+addEventListener('resize',()=>{resize();unfold()});
+resize();newSeq();unfold();loop();
+</script>
+</body>
+</html>
